@@ -21,6 +21,7 @@ export default function LoginPage() {
       let userObj: any = null;
 
       try {
+        // 1. Coba Login via API Server
         const res = await api.post('/auth/login', {
           username,
           password,
@@ -28,7 +29,6 @@ export default function LoginPage() {
 
         console.log('Response Login:', res.data);
 
-        // Tangkap token dari berbagai kemungkinan struktur response
         token =
           res.data?.token ||
           res.data?.data?.token ||
@@ -36,7 +36,6 @@ export default function LoginPage() {
           res.data?.data?.access_token ||
           '';
 
-        // Tangkap role dari berbagai kemungkinan lokasi objek
         role =
           res.data?.role ||
           res.data?.data?.role ||
@@ -44,25 +43,43 @@ export default function LoginPage() {
           res.data?.data?.user?.role ||
           'user';
 
-        // Tangkap objek user dari response
         userObj =
           res.data?.user ||
           res.data?.data?.user ||
           res.data?.data ||
           null;
       } catch (apiErr: any) {
-        console.warn('API Login gagal / Mode offline aktif:', apiErr);
-        // Fallback lokal jika API server SMK/offline error saat pengujian
-        token = `token_local_${Date.now()}`;
-        if (username.toLowerCase().includes('admin')) {
-          role = 'admin';
+        console.warn('API Login gagal / Mencari di akun terdaftar lokal:', apiErr);
+
+        // 2. Jika API Offline/Error, CEK DATA USER DARI REGISTRATION LOKAL
+        const rawRegistered = localStorage.getItem('registered_users') || '[]';
+        const registeredUsers: any[] = JSON.parse(rawRegistered);
+
+        // Cari user yang match username DAN password
+        const foundUser = registeredUsers.find(
+          (u) =>
+            u.username.toLowerCase() === username.toLowerCase() &&
+            u.password === password
+        );
+
+        if (foundUser) {
+          token = `token_local_${Date.now()}`;
+          role = foundUser.role;
+          userObj = foundUser;
         } else {
-          role = 'user';
+          // Akun default bawaan untuk pengujian cepat (opsional)
+          if (username === 'admin' && password === 'admin123') {
+            token = `token_admin_${Date.now()}`;
+            role = 'admin';
+            userObj = { id: '99', nama: 'Admin Utama', username: 'admin', email: 'admin@coworkluxe.com' };
+          } else {
+            // JIKA AKUN TIDAK DITEMUKAN / BELUM REGISTRASI
+            throw new Error('Akun belum terdaftar atau Password salah! Silakan daftar terlebih dahulu.');
+          }
         }
       }
 
       if (token) {
-        // Tentukan Nama Lengkap secara rapi agar tidak tampil angka '1'
         let namaLengkap = userObj?.nama || userObj?.name || userObj?.username;
         if (!namaLengkap || namaLengkap === '1' || username === '1') {
           namaLengkap = 'Fahmi User';
@@ -72,7 +89,7 @@ export default function LoginPage() {
           userObj?.email ||
           (username.includes('@') ? username : `${username}@coworkluxe.com`);
 
-        const userId = userObj?.id || '1297';
+        const userId = userObj?.id || String(Date.now());
 
         const userData = {
           id: userId,
@@ -82,33 +99,13 @@ export default function LoginPage() {
           role: role,
         };
 
-        // PENYESUAIAN KHUSUS: Backend mengembalikan 'admin_space' untuk Admin
         const isAdmin = role === 'admin' || role === 'admin_space' || role === 'ADMIN';
 
-        // Simpan Data Lengkap ke LocalStorage
+        // Simpan Sesi Login ke LocalStorage
         localStorage.setItem('token', token);
         localStorage.setItem('role', role);
         localStorage.setItem('user_role', isAdmin ? 'admin' : 'user');
         localStorage.setItem('user', JSON.stringify(userData));
-
-        // Sinkronkan ke daftar member admin (registered_members)
-        try {
-          const rawMembers = localStorage.getItem('registered_members') || '[]';
-          let membersList: any[] = JSON.parse(rawMembers);
-
-          const index = membersList.findIndex(
-            (m) => String(m.id) === String(userData.id) || m.email === userData.email
-          );
-
-          if (index !== -1) {
-            membersList[index] = { ...membersList[index], ...userData };
-          } else {
-            membersList.unshift(userData);
-          }
-          localStorage.setItem('registered_members', JSON.stringify(membersList));
-        } catch (e) {
-          console.error('Sync members error:', e);
-        }
 
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new Event('members-updated'));
@@ -124,8 +121,9 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error('Login Error:', err);
       setError(
+        err.message ||
         err.response?.data?.message ||
-          'Login gagal. Periksa kembali username dan password kamu.'
+        'Login gagal. Periksa kembali username dan password kamu.'
       );
     } finally {
       setLoading(false);
@@ -136,7 +134,7 @@ export default function LoginPage() {
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-200 via-slate-300 to-slate-400 p-4 font-sans text-slate-800">
       {/* Glassmorphism White Card */}
       <div className="w-full max-w-md bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-xl shadow-slate-400/20 space-y-6">
-        
+
         {/* Header Logo */}
         <div className="text-center space-y-2">
           <Link href="/" className="text-2xl font-black text-slate-900 tracking-wider">
@@ -150,7 +148,7 @@ export default function LoginPage() {
 
         {/* Error Alert */}
         {error && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl font-medium text-center">
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl font-medium text-center animate-in fade-in zoom-in-95 duration-200">
             {error}
           </div>
         )}
